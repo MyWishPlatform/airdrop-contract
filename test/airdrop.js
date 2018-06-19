@@ -24,29 +24,62 @@ const checkAll = async (fs, token) => {
             .on('data', (record) => {
                 const address = record[0];
                 const value = record[1];
-                console.log(address, ': ', value);
+                console.log('check balance', address, ' must be:', value);
 
+                /***
                 if (map[address]) {
                     console.log("Reject!");
                     parser.end();
                     return reject(new Error("duplicate detected: " + address + ", first line: " + map[address] + ", duplicate at line: " + parser.count));
                 }
                 map[address] = parser.count;
+                ***/
 
                 parser.pause();
-                console.log('check balance', address);
                 token.balanceOf(address)
                     .then(balance => {
                         console.log('got balance', address, balance);
+                        /***
                         if (Number(balance) !== 0) {
                             console.log("Reject!");
                             parser.end();
                             return reject(new Error("balance is not 0 for address " + address + ", it is " + balance));
                         }
+                       / ***/
                         parser.resume();
                     });
 
             });
+    })
+};
+
+const createMapAndSend = async(fs, airdrop) => {
+    const parser = csv.parse({
+        headers: true,
+        from: 2,
+        trim: true
+    });
+    let toSend = {};
+    let count = 0;
+    const consumer = (record) => {
+        const address = record[0];
+        const value = record[1];
+        console.log("address:", address, ', value:', value);
+
+        toSend[address] = value;
+        count ++;
+        console.log("collect " + count);
+    };
+
+    await new Promise((resolve, reject) => {
+       // parser.on('finish', resolve)
+       //     .on('error', reject);
+        fs.pipe(parser)
+            .on('data', consumer)
+            .on('end', () => sendAll(toSend, airdrop)
+                .then(tx => {console.log("tx received", tx)}
+            ).then(resolve))
+            .on('error', reject);
     })
 };
 
@@ -59,9 +92,10 @@ const sendAll = async (map, airDrop) => {
             let value = web3.toWei(map[k]);
             values.push(value);
         });
-    const tx = await airDrop.transfer(addresses, values, []);
+    const tx = await airDrop.transfer(addresses, values);
     return tx.receipt.transactionHash;
 };
+
 
 const getSent = async (fs) => {
     const parser = csv.parse({
@@ -182,35 +216,16 @@ contract("AirDrop", function (accounts) {
         });
     });
 
-    it("check duplicate", async () => {
-        const token = await createToken();
-        let error = null;
-        try {
-            await checkAll(fs.createReadStream('test/test-dup.csv'), token);
-        }
-        catch (e) {
-            error = e;
-            console.log('catch error', e);
-        }
-        error.should.not.be.null;
-    });
 
-    it("check already has balance", async () => {
-        const token = await createToken();
-        await token.mint("0xd8847b85964ef515d7735c8E0d40B530f9dA0081", web3.toWei(10));
-        let error = null;
-        try {
-            await checkAll(fs.createReadStream('test/test.csv'), token);
-        }
-        catch (e) {
-            error = e;
-            console.log('catch error', e);
-        }
-        error.should.not.be.null;
-    });
-
-    it("send bulk", async () => {
+    it("create map, send to all and check balance", async () => {
         const contract = await createAirDrop();
-        await bulkSender(fs.createReadStream('test/test.csv'), contract);
+        const tokenAddr = await contract.token();
+        const token = await TestToken.at(tokenAddr);
+        const stream = fs.createReadStream('test/test.csv');
+        console.log('Send generated stream');
+        await createMapAndSend(stream, contract);
+        console.log('Check balance');
+        const streamForCheck = fs.createReadStream('test/test.csv');
+        await checkAll(streamForCheck, token);
     })
 });
