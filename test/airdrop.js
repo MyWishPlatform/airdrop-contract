@@ -17,39 +17,22 @@ const checkAll = async (fs, token) => {
         from: 2,
         trim: true
     });
+
+    const consumer = async (record) => {
+        const address = record[0];
+        const value = record[1];
+        parser.pause();
+        console.log('check balance', address, ' must be:', value);
+        const balance = await token.balanceOf(address);
+        console.log('got balance',balance);
+        parser.resume();
+    };
+
     await new Promise((resolve, reject) => {
-        parser.on('finish', resolve)
-            .on('error', reject);
         fs.pipe(parser)
-            .on('data', (record) => {
-                const address = record[0];
-                const value = record[1];
-                console.log('check balance', address, ' must be:', value);
-
-                /***
-                if (map[address]) {
-                    console.log("Reject!");
-                    parser.end();
-                    return reject(new Error("duplicate detected: " + address + ", first line: " + map[address] + ", duplicate at line: " + parser.count));
-                }
-                map[address] = parser.count;
-                ***/
-
-                parser.pause();
-                token.balanceOf(address)
-                    .then(balance => {
-                        console.log('got balance', address, balance);
-                        /***
-                        if (Number(balance) !== 0) {
-                            console.log("Reject!");
-                            parser.end();
-                            return reject(new Error("balance is not 0 for address " + address + ", it is " + balance));
-                        }
-                       / ***/
-                        parser.resume();
-                    });
-
-            });
+            .on('data', consumer)
+            .on('end', resolve)
+            .on('error', reject);
     })
 };
 
@@ -96,6 +79,32 @@ const sendAll = async (map, airDrop) => {
     return tx.receipt.transactionHash;
 };
 
+const calculateTokens = async (fs) => {
+    const parser = csv.parse({
+        headers: false,
+        from: 2,
+        trim: true
+    });
+
+
+    let thisSum = 0;
+    let count = 0;
+
+    const consumer = (record) => {
+        const value = record[1];
+        count ++;
+        thisSum += Number(value);
+    };
+
+    await new Promise((resolve, reject) => {
+        fs.pipe(parser)
+            .on('data', consumer)
+            .on('end', resolve)
+            .on('error', reject);
+    })
+    return thisSum;
+}
+
 
 const getSent = async (fs) => {
     const parser = csv.parse({
@@ -126,65 +135,6 @@ const getSent = async (fs) => {
     return sent;
 };
 
-const bulkSender = async(fs, sent, airdrop) => {
-    const parser = csv.parse({
-        headers: true,
-        from: 2,
-        trim: true
-    });
-
-    const BULK = 3;
-    let toSend = {};
-    let count = 0;
-
-    const consumer = (record) => {
-        const address = record[0];
-        const value = record[1];
-        console.log("address:", address, ', value:', value);
-
-        if (count < BULK) {
-            // check already sent
-            if (sent[address]) {
-                console.info("skip:", address, ", hash:", sent[address]);
-                return;
-            }
-
-            toSend[address] = value;
-            count ++;
-            console.log("collect " + count);
-        }
-        else if (count === BULK) {
-            console.log("pause and send all");
-            parser.pause();
-            sendAll(toSend, airdrop)
-                .then(tx => {
-                    console.log("tx received", tx);
-                    count = 0;
-                    toSend = {};
-                    parser.resume();
-                })
-                .catch(error => {
-                    throw error;
-                });
-        }
-        else {
-            console.error("count > BULK, pause does not work");
-            throw new Error("error!");
-        }
-
-    };
-
-    await new Promise((resolve, reject) => {
-        // parser.on('finish', resolve)
-        //     .on('error', reject);
-        fs.pipe(parser)
-            .on('data', consumer)
-            .on('end', () => sendAll(toSend, airdrop).then(resolve))
-            .on('error', reject);
-    })
-
-};
-
 
 contract("AirDrop", function (accounts) {
     const OWNER = accounts[0];
@@ -197,10 +147,10 @@ contract("AirDrop", function (accounts) {
         return token;
     };
 
-    const createAirDrop = async() => {
+    const createAirDrop = async(tokenAmount) => {
         const token = await createToken();
         const airdrop = await AirDrop.new(OWNER, token.address);
-        await token.mint(airdrop.address, web3.toWei(100000));
+        await token.mint(airdrop.address, web3.toWei(tokenAmount));
         return airdrop;
     };
 
@@ -218,10 +168,15 @@ contract("AirDrop", function (accounts) {
 
 
     it("create map, send to all and check balance", async () => {
-        const contract = await createAirDrop();
-        const tokenAddr = await contract.token();
-        const token = await TestToken.at(tokenAddr);
+        console.log('Total sum of tokens');
+        const streamForSum = fs.createReadStream('test/test.csv');
+        const tokenAmount = await calculateTokens(streamForSum);
+        console.log(tokenAmount);
+
+        const contract = await createAirDrop(tokenAmount);
+        const token = await TestToken.at(await contract.token());
         const stream = fs.createReadStream('test/test.csv');
+
         console.log('Send generated stream');
         await createMapAndSend(stream, contract);
         console.log('Check balance');
