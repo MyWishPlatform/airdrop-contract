@@ -30,6 +30,15 @@ contract AirDrop is Ownable {
         }
     }
 
+    function freezeTo(address[] _addresses, uint[] _amounts, uint64 _until) external onlyOwner {
+        require(_addresses.length == _amounts.length);
+        require(_until > block.timestamp);
+
+        for (uint i = 0; i < _addresses.length; i ++) {
+            token.freezeTo(_addresses[i], _amounts[i], _until);
+        }
+    }
+ 
     function tokenFallback(address, uint, bytes) public pure {
         // receive tokens
     }
