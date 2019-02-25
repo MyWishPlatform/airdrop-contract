@@ -1,14 +1,15 @@
 pragma solidity ^0.4.24;
 
 import "openzeppelin-solidity/contracts/ownership/Ownable.sol";
-import "openzeppelin-solidity/contracts/token/ERC20/ERC20.sol";
+//import "openzeppelin-solidity/contracts/token/ERC20/ERC20.sol";
+import "./FreezableMintableToken.sol";
 import "sc-library/contracts/ERC223/ERC223Receiver.sol";
 
 
 contract AirDrop is Ownable {
-    ERC20 public token;
+    FreezableMintableToken public token;
     uint public createdAt;
-    constructor(address _target, ERC20 _token) public {
+    constructor(address _target, FreezableMintableToken _token) public {
         owner = _target;
         token = _token;
         createdAt = block.number;

@@ -5,6 +5,7 @@ chai.should();
 
 const AirDrop = artifacts.require("AirDrop");
 const TestToken = artifacts.require("TestToken");
+const FreezableMintableToken = artifacts.require("FreezableMintableToken");
 const csv = require('csv');
 const fs = require("fs");
 const stringify = require('csv-stringify');
@@ -147,7 +148,13 @@ contract("AirDrop", function (accounts) {
         return token;
     };
 
-    const createAirDrop = async(tokenAmount) => {
+    const createFreezableToken = async() => {
+        const freezableToken = await FreezableMintableToken.new();
+        await freezableToken.mint(OWNER, web3.toWei(100000));
+        return freezableToken;
+    }
+
+    const createAirDrop = async(tokenContract, tokenAmount) => {
         const token = await createToken();
         const airdrop = await AirDrop.new(OWNER, token.address);
         await token.mint(airdrop.address, web3.toWei(tokenAmount));
@@ -173,8 +180,8 @@ contract("AirDrop", function (accounts) {
         const tokenAmount = await calculateTokens(streamForSum);
         console.log(tokenAmount);
 
-        const contract = await createAirDrop(tokenAmount);
-        const token = await TestToken.at(await contract.token());
+        const token = await createToken();
+        const contract = await createAirDrop(token, tokenAmount);
         const stream = fs.createReadStream('test/test.csv');
 
         console.log('Send generated stream');
@@ -182,5 +189,25 @@ contract("AirDrop", function (accounts) {
         console.log('Check balance');
         const streamForCheck = fs.createReadStream('test/test.csv');
         await checkAll(streamForCheck, token);
+    })
+
+    it("transfer token and freeze", async () => {
+        console.log('Total sum of tokens');
+        const streamForSum = fs.createReadStream('test/test.csv');
+        const tokenAmount = await calculateTokens(streamForSum);
+        console.log(tokenAmount);
+
+        const freezableToken = await createFreezableToken();
+
+        const contract = await createAirDrop(freezableToken, tokenAmount);
+        const stream = fs.createReadStream('test/test.csv');
+
+
+        console.log('Send generated stream');
+        await createMapAndSend(stream, contract);
+        console.log('Check balance');
+        const streamForCheck = fs.createReadStream('test/test.csv');
+        await checkAll(streamForCheck, freezableToken);
+
     })
 });

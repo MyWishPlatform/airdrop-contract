@@ -1,4 +1,4 @@
-const ganache = require('ganache-cli');
+const ganache = require('ganache-core');
 
 const ganacheConfig = () => {
     return {
